@@ -7,14 +7,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.navigation.fragment.findNavController
 import com.example.tenantmanagementsystem.databinding.FragmentAddTenantBinding
-import com.example.tenantmanagementsystem.data.model.Tenant
-import com.example.tenantmanagementsystem.data.repository.TenantRepository
+import com.example.tenantmanagementsystem.ui.viewmodel.TenantViewModel
 
 class AddTenantFragment : Fragment() {
     private var _binding: FragmentAddTenantBinding? = null
     private val binding get() = _binding!!
+
+    // The SHARED ViewModel: every Fragment in MainActivity gets the SAME one
+    private val viewModel: TenantViewModel by activityViewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,36 +39,23 @@ class AddTenantFragment : Fragment() {
         Log.d("TENANT_LIFECYCLE", "   AddTenantFragment: onViewCreated")
 
         binding.saveButton.setOnClickListener {
-            val name = binding.tenantNameEditText.text.toString().trim()
-            val phone = binding.phoneEditText.text.toString().trim()
-            val rent = binding.rentEditText.text.toString().trim()
 
-            var isValid = true
-            if (name.isEmpty()) {
-                binding.tenantNameEditText.error = "Required"
-                isValid = false
-            }
-            if (phone.isEmpty()) {
-                binding.phoneEditText.error = "Required"
-                isValid = false
-            } else if (phone.length < 10) {
-                binding.phoneEditText.error = "Enter a valid phone number"
-                isValid = false
-            }
-            if (rent.isEmpty()) {
-                binding.rentEditText.error = "Required"
-                isValid = false
-            }
+            // UI JOB: collect the input. The ViewModel trims, checks and saves it
+            val tenant = viewModel.addTenant(
+                binding.tenantNameEditText.text.toString(),
+                binding.phoneEditText.text.toString(),
+                binding.rentEditText.text.toString()
+            )
 
-            if (!isValid) {
-                Toast.makeText(requireContext(), "Please fix errors before saving", Toast.LENGTH_SHORT).show()
+            // null = rejected. UI JOB: tell the user
+            if (tenant == null) {
+                Toast.makeText(requireContext(), "Please fill in all fields", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            val tenant = Tenant(name, phone, rent)
-            TenantRepository.addTenant(tenant)
-
-            val action = AddTenantFragmentDirections.actionAddTenantFragmentToViewTenantsFragment(tenant)
+            // UI JOB: navigate with Safe Args (unchanged)
+            val action = AddTenantFragmentDirections
+                .actionAddTenantFragmentToViewTenantsFragment(tenant)
             findNavController().navigate(action)
         }
     }
