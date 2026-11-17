@@ -1,65 +1,69 @@
 package com.example.tenantmanagementsystem.ui.viewmodel
 
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.map
+import androidx.lifecycle.viewModelScope
+import com.example.tenantmanagementsystem.data.local.TenantDatabase
 import com.example.tenantmanagementsystem.data.model.Tenant
 import com.example.tenantmanagementsystem.data.repository.TenantRepository
+import kotlinx.coroutines.launch
 
-/**
- * ViewModel responsible for managing tenant-related UI data.
- *
- * The ViewModel separates the UI from the TenantRepository and
- * exposes tenant information through LiveData.
- */
-class TenantViewModel : ViewModel() {
+// AndroidViewModel: a ViewModel that receives the Application (safe to keep)
+class TenantViewModel(application: Application) : AndroidViewModel(application) {
 
-    /**
-     * Internal MutableLiveData containing the current list of tenants.
-     *
-     * This property can be modified only within the ViewModel.
-     */
-    private val _tenants = MutableLiveData<List<Tenant>>(
-        TenantRepository.tenants.toList()
-    )
+    // Build the data layer once: database → DAO → repository
+    private val repository =
+        TenantRepository(TenantDatabase.getDatabase(application).tenantDao())
 
-    /**
-     * Public read-only LiveData containing the list of tenants.
-     *
-     * UI components can observe this value but cannot modify it directly.
-     */
-    val tenants: LiveData<List<Tenant>> = _tenants
+    // ── 1. THE DATA: Room's LiveData, updated whenever the table changes ──
+    val tenants: LiveData<List<Tenant>> = repository.tenants
 
-    /**
-     * Transformed LiveData containing the total rent.
-     *
-     * Whenever the tenant list changes, the map transformation
-     * recalculates the total rent automatically.
-     */
-    val totalRent: LiveData<String> = _tenants.map { tenants ->
-
-        // Calculate the total rent of all tenants.
-        // Invalid or empty rent values are treated as 0.0.
-        val total = tenants.sumOf {
-            it.rent.toDoubleOrNull() ?: 0.0
-        }
-
-        // Format the total as Kenyan Shillings with two decimal places.
-        "KSh %.2f".format(total)
+    // ── 2. TRANSFORMATIONS (unchanged from Stage 2) ──
+    val tenantCountText: LiveData<String> = tenants.map { list ->
+        "Tenants\n${list.size}"
     }
 
-    /**
-     * Adds a tenant to the repository and updates the LiveData.
-     *
-     * @param tenant The tenant to add.
-     */
-    fun addTenant(tenant: Tenant) {
+    val totalRentText: LiveData<String> = tenants.map { list ->
+        val total = list.sumOf { it.rent.toDoubleOrNull() ?: 0.0 }
+        "Total rent\nKSh %,.0f".format(total)
+    }
 
-        // Add the tenant to the repository.
-        TenantRepository.addTenant(tenant)
+    val allTenantsText: LiveData<String> = tenants.map { list ->
+        if (list.isEmpty()) "No tenants yet. Add one from the Dashboard."
+        else list.joinToString("\n\n") { it.summary() }
+    }
 
-        // Create a new list so observers receive the updated value.
-        _tenants.value = TenantRepository.tenants.toList()
+    // ── 3. ACTIONS ──
+    fun addTenant(name: String, phone: String, rent: String): Tenant? {
+        val cleanName = name.trim()
+        val cleanPhone = phone.trim()
+        val cleanRent = rent.trim()
+
+        if (cleanName.isEmpty() || cleanPhone.isEmpty() || cleanRent.isEmpty()) {
+            return null
+        }
+
+        val tenant = Tenant(cleanName, cleanPhone, cleanRent)
+
+        // COROUTINE: save in the background so the screen never freezes.
+        // When the row is saved, Room updates "tenants" by itself
+        viewModelScope.launch {
+            repository.addTenant(tenant)
+        }
+
+        return tenant
+    }
+
+    // ── 4. LIFECYCLE LOGS ──
+    init {
+        Log.d("TENANT_LIFECYCLE", "      TenantViewModel: created")
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        Log.d("TENANT_LIFECYCLE", "      TenantViewModel: onCleared")
     }
 }
